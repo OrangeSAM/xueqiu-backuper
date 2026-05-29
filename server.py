@@ -1,257 +1,293 @@
 #!/usr/bin/env python3
-"""Local server to browse scraped xueqiu posts."""
+"""
+Local HTTP server for browsing xueqiu posts stored in SQLite.
+Serves API + static frontend.
+"""
 
 import json
 import os
+import re
+import sys
+import time
+import random
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
+from html import unescape as html_unescape
+from datetime import datetime
 
-OUTPUT_DIR = "output_4533843739"
-POSTS_DIR = os.path.join(OUTPUT_DIR, "posts")
+import requests
+
+sys.path.insert(0, os.path.dirname(__file__))
+from backend.db import get_posts, get_post, get_post_count, upsert_post, log_scrape
+
 PORT = 8899
+FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
+COOKIE_FILE = os.path.join(os.path.dirname(__file__), "cookie.txt")
+USER_ID = "4533843739"
 
-# ---- Load timeline on startup ----
-with open(os.path.join(OUTPUT_DIR, "timeline.json")) as f:
-    TIMELINE = json.load(f)
+XUEQIU = "https://xueqiu.com"
 
-# Deduplicate and build index
-_seen = {}
-POSTS = []
-for s in TIMELINE:
-    if s["id"] not in _seen:
-        _seen[s["id"]] = True
-        POSTS.append(s)
-POSTS.sort(key=lambda s: s.get("created_at", 0), reverse=True)
+# ---- Helpers ----
 
-print(f"Loaded {len(POSTS)} posts from timeline.json")
+def load_cookie():
+    if os.path.exists(COOKIE_FILE):
+        with open(COOKIE_FILE) as f:
+            c = f.read().strip()
+            if c:
+                return c
+    return None
 
-# ---- HTML template ----
-HTML = r"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>雪球帖子浏览器</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f1117;color:#c9d1d9;height:100vh;display:flex}
-#sidebar{width:380px;min-width:380px;border-right:1px solid #21262d;display:flex;flex-direction:column;background:#161b22}
-#search{padding:12px}
-#search input{width:100%;padding:8px 12px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#c9d1d9;font-size:13px;outline:none}
-#search input:focus{border-color:#58a6ff}
-#stats{padding:0 12px 8px;font-size:12px;color:#8b949e}
-#list{flex:1;overflow-y:auto}
-.post-item{padding:10px 12px;border-bottom:1px solid #21262d;cursor:pointer;transition:background .15s}
-.post-item:hover{background:#1c2128}
-.post-item.active{background:#1f2937;border-left:3px solid #58a6ff;padding-left:9px}
-.post-item .title{font-size:13px;font-weight:600;color:#e6edf3;margin-bottom:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.post-item .meta{font-size:11px;color:#8b949e;display:flex;gap:12px}
-#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-#article{flex:1;overflow-y:auto;padding:24px 32px;max-width:860px}
-#empty{display:flex;align-items:center;justify-content:center;height:100%;color:#484f58;font-size:15px}
-.art-title{font-size:22px;font-weight:700;color:#f0f6fc;margin-bottom:8px;line-height:1.4}
-.art-meta{font-size:12px;color:#8b949e;margin-bottom:20px;display:flex;gap:16px;flex-wrap:wrap}
-.art-body{font-size:15px;line-height:1.8;color:#c9d1d9;white-space:pre-wrap;word-break:break-word}
-.art-body a{color:#58a6ff}
-.comments-section{margin-top:32px;border-top:1px solid #21262d;padding-top:20px}
-.comments-title{font-size:15px;font-weight:600;color:#e6edf3;margin-bottom:16px}
-.comment{padding:12px 0;border-bottom:1px solid #21262d}
-.comment:last-child{border-bottom:none}
-.comment-header{display:flex;justify-content:space-between;margin-bottom:4px}
-.comment-user{font-size:13px;font-weight:600;color:#e6edf3}
-.comment-time{font-size:11px;color:#8b949e}
-.comment-text{font-size:14px;line-height:1.7;color:#c9d1d9;white-space:pre-wrap;word-break:break-word}
-.comment-text a{color:#58a6ff}
-.comment-likes{font-size:11px;color:#8b949e;margin-top:4px}
-@media(max-width:768px){body{flex-direction:column}#sidebar{width:100%;min-width:0;max-height:40vh}#article{padding:16px}}
-</style>
-</head>
-<body>
 
-<div id="sidebar">
-  <div id="search"><input type="text" id="search-input" placeholder="搜索帖子标题..."></div>
-  <div id="stats">共 __TOTAL__ 篇帖子</div>
-  <div id="list"></div>
-</div>
+def xq_headers(referer=""):
+    h = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    if referer:
+        h["Referer"] = referer
+    cookie = load_cookie()
+    if cookie:
+        h["Cookie"] = cookie
+    return h
 
-<div id="main">
-  <div id="article">
-    <div id="empty">← 选择一篇帖子查看</div>
-  </div>
-</div>
 
-<script>
-const POSTS = __POSTS_JSON__;
-const listEl = document.getElementById('list');
-const articleEl = document.getElementById('article');
-const searchInput = document.getElementById('search-input');
+def rand_sleep(lo=0.5, hi=1.5):
+    time.sleep(random.uniform(lo, hi))
 
-let activeId = null;
 
-function formatTime(ts) {
-  const d = new Date(ts);
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-}
+def clean_html(raw):
+    raw = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", raw, flags=re.DOTALL)
+    raw = re.sub(r"<br\s*/?>", "\n", raw)
+    raw = re.sub(r"</?(?:p|div|h\d|li|tr)[^>]*>", "\n", raw)
+    raw = re.sub(r"<[^>]+>", "", raw)
+    raw = html_unescape(raw)
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
+    raw = re.sub(r"[ \t]+", " ", raw)
+    raw = re.sub(r" *\n *", "\n", raw)
+    return raw.strip()
 
-function stripHtml(s) {
-  if (!s) return '';
-  return s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-}
 
-function renderList(posts) {
-  listEl.innerHTML = posts.map(p => {
-    const title = stripHtml(p.title || p.description || '(无标题)').substring(0, 80);
-    const date = formatTime(p.created_at);
-    const fav = p.fav_count || 0;
-    const reply = p.reply_count || 0;
-    return `<div class="post-item${p.id === activeId ? ' active' : ''}" data-id="${p.id}">
-      <div class="title">${escapeHtml(title)}</div>
-      <div class="meta"><span>${date}</span><span>赞 ${fav}</span><span>评 ${reply}</span></div>
-    </div>`;
-  }).join('');
-}
+# ---- Re-scrape logic ----
 
-function escapeHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
-}
+def extract_article_text(html):
+    # SNOWMAN_STATUS
+    m = re.search(r"SNOWMAN_STATUS\s*=\s*(\{.*?\});\s*\n", html, re.DOTALL)
+    if not m:
+        m = re.search(r"window\.SNOWMAN_STATUS\s*=\s*(\{.*?\});", html, re.DOTALL)
+    if m:
+        try:
+            data = json.loads(m.group(1))
+            text = data.get("text") or data.get("description") or ""
+            if text:
+                return clean_html(text), data
+        except json.JSONDecodeError:
+            pass
 
-function renderArticle(data) {
-  const s = data.status;
-  const title = stripHtml(s.title || s.description || '(无标题)');
-  const date = formatTime(s.created_at);
-  const text = data.article_text || stripHtml(s.description) || '(无内容)';
-  const comments = data.comments || [];
+    # article__bd
+    m = re.search(r'<div[^>]*class="[^"]*article__bd[^"]*"[^>]*>(.*?)</div>\s*<(?:div|article)', html, re.DOTALL)
+    if m:
+        return clean_html(m.group(1)), None
 
-  let html = `<div class="art-title">${escapeHtml(title)}</div>`;
-  html += `<div class="art-meta">
-    <span>${date}</span>
-    <span>赞 ${s.fav_count||0}</span>
-    <span>转发 ${s.retweet_count||0}</span>
-    <span>评论 ${comments.length}</span>
-  </div>`;
-  html += `<div class="art-body">${escapeHtml(text)}</div>`;
+    # detail__content
+    m = re.search(r'<div[^>]*class="[^"]*detail__content[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
+    if m:
+        return clean_html(m.group(1)), None
 
-  if (comments.length) {
-    html += `<div class="comments-section"><div class="comments-title">评论 (${comments.length})</div>`;
-    comments.forEach(c => {
-      const cdate = formatTime(c.created_at);
-      const ctext = c.text || c.description || '';
-      const likes = c.like_count || 0;
-      html += `<div class="comment">
-        <div class="comment-header"><span class="comment-user">${escapeHtml(c.user.screen_name)}</span><span class="comment-time">${cdate}</span></div>
-        <div class="comment-text">${ctext}</div>
-        ${likes ? `<div class="comment-likes">赞 ${likes}</div>` : ''}
-      </div>`;
-    });
-    html += '</div>';
-  }
+    return "", None
 
-  articleEl.innerHTML = html;
-  articleEl.scrollTop = 0;
-}
 
-async function selectPost(id) {
-  activeId = id;
-  renderList(filteredPosts());
-  try {
-    const resp = await fetch('/api/posts/' + id);
-    const data = await resp.json();
-    renderArticle(data);
-  } catch(e) {
-    articleEl.innerHTML = '<div style="color:#f85149;padding:24px">加载失败</div>';
-  }
-}
+def fetch_comments(status_id):
+    all_comments = []
+    max_id = -1
+    while True:
+        url = f"{XUEQIU}/statuses/v3/comments.json?id={status_id}&type=4&size=20&max_id={max_id}"
+        resp = requests.get(url, headers=xq_headers(f"{XUEQIU}/"), timeout=30)
+        if resp.status_code != 200:
+            break
+        data = resp.json()
+        comments = data.get("comments", [])
+        all_comments.extend(comments)
+        next_id = data.get("next_max_id")
+        if next_id is None or next_id == -1 or next_id == "-1":
+            break
+        max_id = next_id
+        rand_sleep(0.8, 1.5)
+    return all_comments
 
-function filteredPosts() {
-  const q = searchInput.value.trim().toLowerCase();
-  if (!q) return POSTS;
-  return POSTS.filter(p => {
-    const t = (p.title || p.description || '').toLowerCase();
-    return t.includes(q);
-  });
-}
 
-listEl.addEventListener('click', e => {
-  const item = e.target.closest('.post-item');
-  if (item) selectPost(parseInt(item.dataset.id));
-});
+def refresh_single_post(target, status_id):
+    cookie = load_cookie()
+    if not cookie:
+        raise RuntimeError("Cookie file not found")
 
-searchInput.addEventListener('input', () => {
-  renderList(filteredPosts());
-});
+    url = f"{XUEQIU}{target}"
+    resp = requests.get(url, headers=xq_headers(url), timeout=30)
+    if resp.status_code != 200:
+        raise RuntimeError(f"HTTP {resp.status_code}")
 
-// Init
-renderList(POSTS);
-</script>
-</body>
-</html>"""
+    article_text, meta = extract_article_text(resp.text)
+    rand_sleep(0.5, 1.0)
+    comments = fetch_comments(status_id)
+
+    return article_text, comments, meta
+
+
+# ---- Server ----
+
+HTML_TEMPLATE = open(os.path.join(FRONTEND_DIR, "index.html"), encoding="utf-8").read()
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path)
 
         if path == "/":
-            self.serve_html()
-        elif path.startswith("/api/posts/"):
-            self.serve_post(path)
+            self.send_html()
         elif path == "/api/posts":
-            self.serve_post_list()
+            self.api_get_posts(parsed)
+        elif path.startswith("/api/posts/") and path.endswith("/refresh"):
+            self.send_error(404)  # refresh is POST only
+        elif path.startswith("/api/posts/"):
+            self.api_get_post(path)
         else:
             self.send_error(404)
 
-    def serve_html(self):
-        posts_json = json.dumps([
-            {
-                "id": p["id"],
-                "title": p.get("title", ""),
-                "description": p.get("description", ""),
-                "created_at": p.get("created_at", 0),
-                "fav_count": p.get("fav_count", 0),
-                "reply_count": p.get("reply_count", 0),
-                "retweet_count": p.get("retweet_count", 0),
-            }
-            for p in POSTS
-        ], ensure_ascii=False)
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path)
 
-        html = HTML.replace("__POSTS_JSON__", posts_json)
-        html = html.replace("__TOTAL__", str(len(POSTS)))
+        if path.startswith("/api/posts/") and path.endswith("/refresh"):
+            self.api_refresh_post(path)
+        else:
+            self.send_error(404)
 
+    # ---- HTML ----
+
+    def send_html(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        self.wfile.write(HTML_TEMPLATE.encode("utf-8"))
 
-    def serve_post(self, path):
+    # ---- API: list posts ----
+
+    def api_get_posts(self, parsed):
+        from urllib.parse import parse_qs
+        qs = parse_qs(parsed.query)
+        search = qs.get("q", [""])[0] or None
+        posts = get_posts(search=search)
+        # Return lightweight list
+        result = [
+            {
+                "id": p["id"],
+                "title": p["title"],
+                "description": p["description"][:120],
+                "created_at": p["created_at"],
+                "like_count": p["like_count"],
+                "fav_count": p["fav_count"],
+                "retweet_count": p["retweet_count"],
+                "reply_count": p["reply_count"],
+                "comment_count": p["comment_count"],
+            }
+            for p in posts
+        ]
+        self.send_json(result)
+
+    # ---- API: single post ----
+
+    def api_get_post(self, path):
         try:
-            post_id = path.split("/")[-1]
-            filepath = os.path.join(POSTS_DIR, f"{post_id}.json")
-            if not os.path.exists(filepath):
-                self.send_error(404)
-                return
-            with open(filepath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
-        except Exception as e:
-            self.send_error(500, str(e))
+            post_id = int(path.rsplit("/", 1)[-1])
+        except ValueError:
+            self.send_error(404)
+            return
 
-    def serve_post_list(self):
-        self.send_response(200)
+        data = get_post(post_id)
+        if not data:
+            self.send_error(404)
+            return
+
+        post = data["post"]
+        result = {
+            "status": json.loads(post.get("raw_status", "{}")),
+            "article_text": post["article_text"],
+            "comments": data["comments"],
+        }
+        self.send_json(result)
+
+    # ---- API: refresh ----
+
+    def api_refresh_post(self, path):
+        try:
+            post_id = int(path.rsplit("/", 2)[-2])
+        except ValueError:
+            self.send_error(404)
+            return
+
+        data = get_post(post_id)
+        if not data:
+            self.send_json({"error": "Post not found"}, 404)
+            return
+
+        post = data["post"]
+        target = post.get("target", "")
+        if not target:
+            self.send_json({"error": "Missing target"}, 400)
+            return
+
+        try:
+            article_text, comments, meta = refresh_single_post(target, post_id)
+        except RuntimeError as e:
+            log_scrape(post_id, "refresh", "error", str(e))
+            self.send_json({"error": str(e)}, 500)
+            return
+
+        # Merge status
+        status = json.loads(post.get("raw_status", "{}"))
+        if meta:
+            status.update(meta)
+
+        upsert_post(status, article_text, comments)
+        log_scrape(post_id, "refresh", "success", f"Refreshed at {datetime.now().isoformat()}")
+
+        # Return updated
+        updated = get_post(post_id)
+        if updated:
+            raw = json.loads(updated["post"].get("raw_status", "{}"))
+            self.send_json({
+                "status": raw,
+                "article_text": updated["post"]["article_text"],
+                "comments": updated["comments"],
+            })
+        else:
+            self.send_json({"error": "Failed to read back"}, 500)
+
+    # ---- Utils ----
+
+    def send_json(self, data, code=200):
+        self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
-        self.wfile.write(json.dumps(POSTS, ensure_ascii=False).encode("utf-8"))
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
-    def log_message(self, format, *args):
-        pass  # suppress logs
+    def log_message(self, fmt, *args):
+        pass
 
 
 def main():
+    if not load_cookie():
+        print("[WARN] No cookie.txt found — refresh will not work.")
+
+    from backend.db import init_db
+    init_db()
+
+    count = get_post_count()
+    print(f"SQLite ready. {count} posts in database.")
     print(f"\n  Open http://localhost:{PORT}\n")
+
     server = HTTPServer(("127.0.0.1", PORT), Handler)
     try:
         server.serve_forever()
