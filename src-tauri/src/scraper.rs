@@ -15,24 +15,26 @@ impl Scraper {
     pub fn new(cookie: Option<&str>) -> Result<Self, String> {
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_STR));
-        headers.insert("Accept", HeaderValue::from_static("*/*"));
-        headers.insert("Accept-Language", HeaderValue::from_static("zh-CN,zh;q=0.9"));
-        headers.insert("X-Requested-With", HeaderValue::from_static("XMLHttpRequest"));
-
-        let mut builder = reqwest::blocking::Client::builder()
-            .default_headers(headers)
-            .timeout(Duration::from_secs(30))
-            .cookie_store(true);
+        headers.insert("Accept", HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"));
+        headers.insert("Accept-Language", HeaderValue::from_static("zh-CN,zh;q=0.9,en;q=0.8"));
 
         if let Some(c) = cookie {
-            // Use cookie-rs or manually set cookie header
-            // reqwest's cookie_store handles Set-Cookie, but for initial cookie we use header
-            let mut h = HeaderMap::new();
-            h.insert("Cookie", HeaderValue::from_str(c).map_err(|e| e.to_string())?);
-            builder = builder.default_headers(h);
+            headers.insert("Cookie", HeaderValue::from_str(c).map_err(|e| e.to_string())?);
+            let preview: String = c.chars().take(80).collect();
+            log::info!("Cookie (first 80 chars): {}...", preview);
         }
 
-        let client = builder.build().map_err(|e| e.to_string())?;
+        let client = reqwest::blocking::Client::builder()
+            .default_headers(headers)
+            .timeout(Duration::from_secs(30))
+            .cookie_store(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        // Pre-warm: visit xueqiu.com homepage to get session cookies
+        if let Err(e) = client.get(XUEQIU).send() {
+            log::warn!("Pre-warm request to xueqiu.com failed (non-fatal): {}", e);
+        }
 
         Ok(Scraper { client })
     }
@@ -53,26 +55,36 @@ impl Scraper {
         let mut page = 0;
 
         loop {
-            let url = format!(
-                "{}/v4/statuses/user_timeline.json?user_id={}&type=0&page={}&_={}",
-                XUEQIU,
-                user_id,
-                page + 1,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis()
-            );
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+
+            let url = if max_id == -1 {
+                format!(
+                    "{}/v4/statuses/user_timeline.json?user_id={}&_={}",
+                    XUEQIU, user_id, ts
+                )
+            } else {
+                format!(
+                    "{}/v4/statuses/user_timeline.json?user_id={}&max_id={}&_={}",
+                    XUEQIU, user_id, max_id, ts
+                )
+            };
 
             let resp = self
                 .client
                 .get(&url)
                 .header("Referer", format!("{}/u/{}", XUEQIU, user_id))
+                .header("X-Requested-With", "XMLHttpRequest")
                 .send()
                 .map_err(|e| format!("Timeline request failed: {}", e))?;
 
             if resp.status() != 200 {
-                return Err(format!("HTTP {}", resp.status()));
+                let status = resp.status();
+                let body = resp.text().unwrap_or_default();
+                let preview: String = body.chars().take(300).collect();
+                return Err(format!("HTTP {} fetching timeline: {}", status, preview));
             }
 
             let data: Value = resp.json().map_err(|e: reqwest::Error| e.to_string())?;
@@ -81,7 +93,13 @@ impl Scraper {
             all_statuses.extend(statuses);
 
             let next_id = data["next_max_id"].as_i64().unwrap_or(-1);
-            log::info!("Page {}: got {} posts, next_max_id={}", page + 1, count, next_id);
+            let total_count = data["total_count"].as_i64().unwrap_or(-1);
+            // Log response keys to debug pagination
+            if page == 0 {
+                let keys: Vec<&str> = data.as_object().map(|o| o.keys().map(|s| s.as_str()).collect()).unwrap_or_default();
+                log::info!("Timeline response keys: {:?}, total_count={}", keys, total_count);
+            }
+            log::info!("Page {}: max_id={}, got {} posts, next_max_id={}, total_count={}", page + 1, max_id, count, next_id, total_count);
 
             if next_id == -1 || count == 0 {
                 break;
