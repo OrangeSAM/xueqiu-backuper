@@ -51,8 +51,8 @@ impl Scraper {
         max_pages: Option<i64>,
     ) -> Result<Vec<Value>, String> {
         let mut all_statuses: Vec<Value> = Vec::new();
-        let mut max_id: i64 = -1;
-        let mut page = 0;
+        let mut page: i64 = 1;
+        let mut total_pages: i64 = i64::MAX;
 
         loop {
             let ts = std::time::SystemTime::now()
@@ -60,17 +60,10 @@ impl Scraper {
                 .unwrap()
                 .as_millis();
 
-            let url = if max_id == -1 {
-                format!(
-                    "{}/v4/statuses/user_timeline.json?user_id={}&_={}",
-                    XUEQIU, user_id, ts
-                )
-            } else {
-                format!(
-                    "{}/v4/statuses/user_timeline.json?user_id={}&max_id={}&_={}",
-                    XUEQIU, user_id, max_id, ts
-                )
-            };
+            let url = format!(
+                "{}/v4/statuses/user_timeline.json?user_id={}&type=0&page={}&_={}",
+                XUEQIU, user_id, page, ts
+            );
 
             let resp = self
                 .client
@@ -92,21 +85,16 @@ impl Scraper {
             let count = statuses.len();
             all_statuses.extend(statuses);
 
-            let next_id = data["next_max_id"].as_i64().unwrap_or(-1);
-            let total_count = data["total_count"].as_i64().unwrap_or(-1);
-            // Log response keys to debug pagination
-            if page == 0 {
-                let keys: Vec<&str> = data.as_object().map(|o| o.keys().map(|s| s.as_str()).collect()).unwrap_or_default();
-                log::info!("Timeline response keys: {:?}, total_count={}", keys, total_count);
+            // This API uses page-based pagination: response has "page" and "maxPage"
+            total_pages = data["maxPage"].as_i64().unwrap_or(total_pages);
+            if page == 1 {
+                log::info!("Timeline: maxPage={}, total posts will be ~{}", total_pages, total_pages * 20);
             }
-            log::info!("Page {}: max_id={}, got {} posts, next_max_id={}, total_count={}", page + 1, max_id, count, next_id, total_count);
+            log::info!("Page {}/{}: got {} posts, total collected={}", page, total_pages, count, all_statuses.len());
 
-            if next_id == -1 || count == 0 {
+            if count == 0 || page >= total_pages {
                 break;
             }
-
-            max_id = next_id;
-            page += 1;
 
             if let Some(max) = max_pages {
                 if page >= max {
@@ -114,6 +102,7 @@ impl Scraper {
                 }
             }
 
+            page += 1;
             self.rand_sleep(0.8, 2.0);
         }
 

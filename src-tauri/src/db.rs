@@ -360,6 +360,15 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_post(&self, post_id: i64) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM comments WHERE post_id = ?", params![post_id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM posts WHERE id = ?", params![post_id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     // ---- Settings ----
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, String> {

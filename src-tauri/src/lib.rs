@@ -26,6 +26,7 @@ pub fn run() {
             commands::get_post_count,
             commands::get_user_ids,
             commands::refresh_post,
+            commands::delete_post,
             commands::get_settings,
             commands::save_settings,
             commands::scrape_timeline,

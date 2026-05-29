@@ -156,7 +156,11 @@ function renderArticle(data) {
       </div>
       <button id="refresh-btn" onclick="window._refreshPost(${postId})">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="refresh-icon"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        <span id="refresh-label">刷新数据</span>
+        <span id="refresh-label">刷新</span>
+      </button>
+      <button id="delete-btn" onclick="window._deletePost(${postId})" style="margin-left:8px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <span>删除</span>
       </button>
     </div>
     <div class="art-body">${esc(text)}</div>`;
@@ -235,6 +239,27 @@ async function refreshPost(id) {
 }
 
 window._refreshPost = refreshPost;
+
+async function deletePost(id) {
+  if (!confirm('确定要删除这篇帖子吗？删除后无法恢复。')) return;
+  try {
+    await invoke("delete_post", { postId: id });
+    posts = posts.filter(p => p.id !== id);
+    activeId = null;
+    renderList();
+    document.getElementById("browse-inner").innerHTML = `<div id="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+      <span>← 选择一篇帖子阅读</span>
+    </div>`;
+    loadUserFilter();
+    toast("帖子已删除");
+  } catch (e) { toast("删除失败: " + e, true); }
+}
+window._deletePost = deletePost;
+
 window._toggleReplies = (id, childCount) => {
   const thread = document.getElementById(id);
   const child = thread.querySelector(".child-replies");

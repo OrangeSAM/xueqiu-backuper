@@ -171,6 +171,14 @@ body::before {
 #refresh-btn:hover { border-color: var(--amber-muted); color: var(--amber); }
 #refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 #refresh-btn .spin { animation: spin 1s linear infinite; }
+	#delete-btn {
+	  display: flex; align-items: center; gap: 6px;
+	  padding: 6px 14px; font-size: 12px; font-family: var(--font-ui);
+	  background: transparent; border: 1px solid rgba(224,85,106,0.25);
+	  border-radius: 6px; color: var(--paper-dim); cursor: pointer;
+	  transition: all .2s;
+	}
+	#delete-btn:hover { border-color: var(--red); color: var(--red); }
 .art-body {
   font-family: var(--font-body); font-size: 1.0625rem;
   line-height: 1.85; color: var(--paper); white-space: pre-wrap;

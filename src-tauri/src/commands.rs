@@ -106,6 +106,11 @@ pub fn refresh_post(
 }
 
 #[tauri::command]
+pub fn delete_post(db: tauri::State<'_, Database>, post_id: i64) -> Result<(), String> {
+    db.delete_post(post_id)
+}
+
+#[tauri::command]
 pub fn get_settings(db: tauri::State<'_, Database>) -> Result<AppSettings, String> {
     let cookie = db.get_setting("cookie").ok().flatten().unwrap_or_default();
     let user_id = db.get_setting("user_id").ok().flatten().unwrap_or_default();
