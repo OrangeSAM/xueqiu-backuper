@@ -9,6 +9,7 @@ interface PostIndex {
   title: string;
   description: string;
   created_at: number;
+  like_count: number;
   fav_count: number;
   retweet_count: number;
   reply_count: number;
@@ -31,6 +32,7 @@ function build() {
       title: stripHtml(s.title || s.description || ""),
       description: stripHtml(s.description || "").substring(0, 120),
       created_at: s.created_at,
+      like_count: s.like_count || 0,
       fav_count: s.fav_count || 0,
       retweet_count: s.retweet_count || 0,
       reply_count: s.reply_count || 0,

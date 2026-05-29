@@ -57,7 +57,7 @@ export default function HomePage() {
         setPosts((prev) =>
           prev.map((p) =>
             p.id === activeId
-              ? { ...p, fav_count: fresh.status?.fav_count ?? p.fav_count, comment_count: fresh.comments?.length ?? p.comment_count }
+              ? { ...p, like_count: fresh.status?.like_count ?? p.like_count, fav_count: fresh.status?.fav_count ?? p.fav_count, comment_count: fresh.comments?.length ?? p.comment_count }
               : p,
           ),
         );

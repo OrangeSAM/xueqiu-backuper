@@ -3,6 +3,7 @@ export interface PostIndex {
   title: string;
   description: string;
   created_at: number;
+  like_count: number;
   fav_count: number;
   retweet_count: number;
   reply_count: number;
