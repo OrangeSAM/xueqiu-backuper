@@ -179,67 +179,52 @@ impl Database {
 
     // ---- Posts ----
 
-    pub fn get_posts(&self, search: Option<&str>, limit: i64, offset: i64) -> Result<Vec<PostListItem>, String> {
+    pub fn get_posts(&self, search: Option<&str>, user_id: Option<i64>, limit: i64, offset: i64) -> Result<Vec<PostListItem>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        if let Some(q) = search {
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, title, description, created_at, like_count, fav_count, \
-                     retweet_count, reply_count, comment_count \
-                     FROM posts WHERE title LIKE ? OR description LIKE ? \
-                     ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                )
-                .map_err(|e| e.to_string())?;
-            let pattern = format!("%{}%", q);
-            let rows = stmt
-                .query_map(params![pattern, pattern, limit, offset], |row| {
-                    Ok(PostListItem {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        description: row.get(2)?,
-                        created_at: row.get(3)?,
-                        like_count: row.get(4)?,
-                        fav_count: row.get(5)?,
-                        retweet_count: row.get(6)?,
-                        reply_count: row.get(7)?,
-                        comment_count: row.get(8)?,
-                    })
-                })
-                .map_err(|e| e.to_string())?;
-            let mut posts = Vec::new();
-            for r in rows {
-                posts.push(r.map_err(|e| e.to_string())?);
-            }
-            Ok(posts)
-        } else {
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, title, description, created_at, like_count, fav_count, \
-                     retweet_count, reply_count, comment_count \
-                     FROM posts ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                )
-                .map_err(|e| e.to_string())?;
-            let rows = stmt
-                .query_map(params![limit, offset], |row| {
-                    Ok(PostListItem {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        description: row.get(2)?,
-                        created_at: row.get(3)?,
-                        like_count: row.get(4)?,
-                        fav_count: row.get(5)?,
-                        retweet_count: row.get(6)?,
-                        reply_count: row.get(7)?,
-                        comment_count: row.get(8)?,
-                    })
-                })
-                .map_err(|e| e.to_string())?;
-            let mut posts = Vec::new();
-            for r in rows {
-                posts.push(r.map_err(|e| e.to_string())?);
-            }
-            Ok(posts)
+
+        let (where_clause, _extra_param) = match (search, user_id) {
+            (Some(_), Some(_)) => ("WHERE (title LIKE ? OR description LIKE ?) AND user_id = ? ", Some(3)),
+            (Some(_), None) => ("WHERE title LIKE ? OR description LIKE ? ", None),
+            (None, Some(_)) => ("WHERE user_id = ? ", None),
+            (None, None) => ("", None),
+        };
+
+        let sql = format!(
+            "SELECT id, title, description, created_at, like_count, fav_count, \
+             retweet_count, reply_count, comment_count \
+             FROM posts {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            where_clause
+        );
+
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+
+        let pattern = search.map(|q| format!("%{}%", q));
+
+        let rows = match (pattern, user_id) {
+            (Some(ref p), Some(uid)) => stmt.query_map(params![p, p, uid, limit, offset], map_post_row).map_err(|e| e.to_string())?,
+            (Some(ref p), None) => stmt.query_map(params![p, p, limit, offset], map_post_row).map_err(|e| e.to_string())?,
+            (None, Some(uid)) => stmt.query_map(params![uid, limit, offset], map_post_row).map_err(|e| e.to_string())?,
+            (None, None) => stmt.query_map(params![limit, offset], map_post_row).map_err(|e| e.to_string())?,
+        };
+
+        let mut posts = Vec::new();
+        for r in rows {
+            posts.push(r.map_err(|e| e.to_string())?);
         }
+        Ok(posts)
+    }
+
+    pub fn get_user_ids(&self) -> Result<Vec<i64>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT user_id FROM posts ORDER BY user_id")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |row| row.get(0)).map_err(|e| e.to_string())?;
+        let mut ids = Vec::new();
+        for r in rows {
+            ids.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(ids)
     }
 
     pub fn get_post_count(&self) -> Result<i64, String> {
@@ -396,6 +381,20 @@ impl Database {
         .map_err(|e| e.to_string())?;
         Ok(())
     }
+}
+
+fn map_post_row(row: &rusqlite::Row) -> rusqlite::Result<PostListItem> {
+    Ok(PostListItem {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        description: row.get(2)?,
+        created_at: row.get(3)?,
+        like_count: row.get(4)?,
+        fav_count: row.get(5)?,
+        retweet_count: row.get(6)?,
+        reply_count: row.get(7)?,
+        comment_count: row.get(8)?,
+    })
 }
 
 fn insert_comments_raw(
