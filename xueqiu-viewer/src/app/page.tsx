@@ -11,6 +11,7 @@ export default function HomePage() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [postData, setPostData] = useState<PostData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const mainRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,6 +44,33 @@ export default function HomePage() {
     }
     mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  const refreshActivePost = useCallback(async () => {
+    if (!activeId || refreshing) return;
+    setRefreshing(true);
+    try {
+      const resp = await fetch(`/api/posts/${activeId}/refresh`, { method: "POST" });
+      if (resp.ok) {
+        const fresh = await resp.json();
+        setPostData(fresh);
+        // Update the post in the index list as well
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === activeId
+              ? { ...p, fav_count: fresh.status?.fav_count ?? p.fav_count, comment_count: fresh.comments?.length ?? p.comment_count }
+              : p,
+          ),
+        );
+      } else {
+        const err = await resp.json();
+        alert(err.error || "刷新失败，请确认 cookie.txt 中的 cookie 未过期");
+      }
+    } catch {
+      alert("刷新请求失败");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [activeId, refreshing]);
 
   return (
     <div className="flex h-full" style={{ background: "var(--ink)" }}>
@@ -111,7 +139,13 @@ export default function HomePage() {
 
       {/* Main Content */}
       <main ref={mainRef} className="flex-1 overflow-y-auto">
-        <PostDetail data={postData} loading={loading} activeId={activeId} />
+        <PostDetail
+          data={postData}
+          loading={loading}
+          activeId={activeId}
+          onRefresh={refreshActivePost}
+          refreshing={refreshing}
+        />
       </main>
     </div>
   );

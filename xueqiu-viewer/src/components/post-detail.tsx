@@ -33,10 +33,14 @@ export default function PostDetail({
   data,
   loading,
   activeId,
+  onRefresh,
+  refreshing,
 }: {
   data: PostData | null;
   loading: boolean;
   activeId: number | null;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -120,64 +124,106 @@ export default function PostDetail({
           style={{ background: "var(--amber-muted)" }}
         />
 
-        {/* Meta line */}
-        <div
-          className="flex flex-wrap items-center gap-4 text-[12px] mb-8 tracking-wide"
-          style={{ color: "var(--paper-dim)", fontFamily: "var(--font-ui)" }}
-        >
-          <time>{formatFullDate(s.created_at)}</time>
-          <span className="flex items-center gap-1">
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-            </svg>
-            {s.fav_count ?? 0}
-          </span>
-          <span className="flex items-center gap-1">
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="17 1 21 5 17 9" />
-              <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-              <polyline points="7 23 3 19 7 15" />
-              <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-            </svg>
-            {s.retweet_count ?? 0}
-          </span>
-          <span className="flex items-center gap-1">
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            {comments.length}
-          </span>
-          {s.source && (
-            <span
-              className="px-1.5 py-0.5 rounded text-[10px]"
-              style={{
-                background: "var(--ink-raised)",
-                color: "var(--paper-dim)",
-              }}
-            >
-              {s.source}
+        {/* Meta line + refresh */}
+        <div className="flex items-center justify-between mb-8">
+          <div
+            className="flex flex-wrap items-center gap-4 text-[12px] tracking-wide"
+            style={{ color: "var(--paper-dim)", fontFamily: "var(--font-ui)" }}
+          >
+            <time>{formatFullDate(s.created_at)}</time>
+            <span className="flex items-center gap-1">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+              </svg>
+              {s.fav_count ?? 0}
             </span>
+            <span className="flex items-center gap-1">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <polyline points="17 1 21 5 17 9" />
+                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                <polyline points="7 23 3 19 7 15" />
+                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+              </svg>
+              {s.retweet_count ?? 0}
+            </span>
+            <span className="flex items-center gap-1">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              {comments.length}
+            </span>
+            {s.source && (
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px]"
+                style={{
+                  background: "var(--ink-raised)",
+                  color: "var(--paper-dim)",
+                }}
+              >
+                {s.source}
+              </span>
+            )}
+          </div>
+
+          {/* Refresh button */}
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: refreshing ? "var(--ink-raised)" : "transparent",
+                borderColor: "var(--ink-border-light)",
+                color: "var(--paper-muted)",
+                fontFamily: "var(--font-ui)",
+              }}
+              onMouseEnter={(e) => {
+                if (!refreshing) {
+                  e.currentTarget.style.borderColor = "var(--amber-muted)";
+                  e.currentTarget.style.color = "var(--amber)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--ink-border-light)";
+                e.currentTarget.style.color = "var(--paper-muted)";
+              }}
+              title="从雪球重新抓取最新数据"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className={refreshing ? "animate-spin" : ""}
+              >
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+              {refreshing ? "刷新中..." : "刷新数据"}
+            </button>
           )}
         </div>
 
