@@ -1,17 +1,19 @@
 # Secrets
 cookie.txt
 
+# Build output
+dist/
+src-tauri/target/
+
 # Generated data
-output_*/
 *.db
 *.db-shm
 *.db-wal
 
 # Node
 node_modules/
-.next/
 
-# Python
+# Python (legacy)
 __pycache__/
 *.pyc
 

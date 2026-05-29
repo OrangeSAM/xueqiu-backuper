@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>雪球备份</title>
+<style>
+:root {
+  --ink: #111110;
+  --ink-surface: #1c1a18;
+  --ink-raised: #24221f;
+  --ink-border: #2d2a26;
+  --ink-border-light: #36322c;
+  --paper: #e6ddd0;
+  --paper-muted: #9d9688;
+  --paper-dim: #6b6559;
+  --amber: #c8964a;
+  --amber-light: #d4a853;
+  --amber-muted: #7d623b;
+  --amber-glow: rgba(200, 150, 74, 0.08);
+  --red: #e0556a;
+  --green: #5a9e7c;
+  --font-ui: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-body: "Noto Serif SC", "Source Han Serif SC", "STSong", serif;
+  --font-mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-ui);
+  background: var(--ink);
+  color: var(--paper);
+  height: 100vh;
+  display: flex;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 9999;
+  pointer-events: none; opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat; background-size: 200px 200px;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ink-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-border-light); }
+::selection { background: var(--amber-muted); color: var(--paper); }
+
+/* ---- Sidebar ---- */
+#sidebar {
+  width: 340px; min-width: 340px;
+  background: var(--ink-surface);
+  border-right: 1px solid var(--ink-border);
+  display: flex; flex-direction: column;
+}
+#sidebar-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ink-border);
+}
+#sidebar-header h1 {
+  font-size: 13px; font-weight: 600; letter-spacing: 0.05em;
+  color: var(--amber); margin-bottom: 12px; display: flex;
+  align-items: center; justify-content: space-between;
+}
+#sidebar-header h1 .actions { display: flex; gap: 6px; }
+#sidebar-header h1 .icon-btn {
+  background: none; border: 1px solid var(--ink-border-light);
+  color: var(--paper-dim); cursor: pointer; border-radius: 4px;
+  width: 26px; height: 26px; display: flex; align-items: center;
+  justify-content: center; transition: all .2s; font-size: 12px;
+}
+#sidebar-header h1 .icon-btn:hover { border-color: var(--amber-muted); color: var(--amber); }
+#search-wrap { position: relative; }
+#search-wrap svg {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 14px; height: 14px; color: var(--paper-dim);
+}
+#search {
+  width: 100%; padding: 8px 12px 8px 34px; font-size: 13px;
+  background: var(--ink); border: 1px solid var(--ink-border-light);
+  border-radius: 6px; color: var(--paper); outline: none;
+  font-family: var(--font-ui); transition: border-color .2s, box-shadow .2s;
+}
+#search:focus {
+  border-color: var(--amber-muted);
+  box-shadow: 0 0 0 3px var(--amber-glow);
+}
+#search-stats { font-size: 11px; color: var(--paper-dim); margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+#search-stats .scrape-status { color: var(--amber-muted); font-size: 10px; }
+
+#post-list { flex: 1; overflow-y: auto; }
+
+.post-item {
+  padding: 12px 20px; border-bottom: 1px solid var(--ink-border);
+  cursor: pointer; transition: background .15s; animation: fadeIn .35s ease both;
+  position: relative;
+}
+.post-item:hover { background: rgba(255,255,255,0.015); }
+.post-item.active {
+  background: linear-gradient(90deg, rgba(200,150,74,0.06) 0%, transparent 100%);
+  border-left: 3px solid var(--amber); padding-left: 17px;
+}
+.post-item-title {
+  font-size: 13px; font-weight: 500; line-height: 1.5;
+  color: var(--paper-muted); display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  margin-bottom: 4px; letter-spacing: 0.01em;
+}
+.post-item.active .post-item-title { color: var(--paper); }
+.post-item-meta {
+  display: flex; gap: 12px; font-size: 11px; color: var(--paper-dim);
+}
+.post-item.active .post-item-meta { color: var(--amber-muted); }
+.post-item-meta span { display: flex; align-items: center; gap: 3px; }
+.post-item-meta svg { width: 11px; height: 11px; }
+
+/* ---- Main ---- */
+#main { flex: 1; overflow-y: auto; }
+#empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; height: 100%; gap: 16px;
+  color: var(--paper-dim); font-size: 14px;
+}
+#empty-state svg { width: 48px; height: 48px; opacity: 0.4; }
+
+.article-wrap {
+  max-width: 720px; margin: 0 auto; padding: 32px 40px;
+  animation: fadeIn .3s ease;
+}
+
+.art-title {
+  font-size: 1.65rem; font-weight: 700; color: var(--paper);
+  line-height: 1.4; margin-bottom: 16px; letter-spacing: 0.015em;
+}
+.art-rule { width: 48px; height: 2px; background: var(--amber-muted); margin-bottom: 20px; }
+
+.art-meta-row {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 32px; flex-wrap: wrap; gap: 8px;
+}
+.art-meta {
+  display: flex; gap: 16px; font-size: 12px; color: var(--paper-dim);
+  flex-wrap: wrap;
+}
+.art-meta span { display: flex; align-items: center; gap: 4px; }
+.art-meta svg { width: 12px; height: 12px; }
+
+#refresh-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px; font-size: 12px; font-family: var(--font-ui);
+  background: transparent; border: 1px solid var(--ink-border-light);
+  border-radius: 6px; color: var(--paper-muted); cursor: pointer;
+  transition: all .2s;
+}
+#refresh-btn:hover { border-color: var(--amber-muted); color: var(--amber); }
+#refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+#refresh-btn .spin { animation: spin 1s linear infinite; }
+
+.art-body {
+  font-family: var(--font-body); font-size: 1.0625rem;
+  line-height: 1.85; color: var(--paper); white-space: pre-wrap;
+  word-break: break-word; margin-bottom: 40px;
+}
+
+#comments-section { border-top: 1px solid var(--ink-border); padding-top: 32px; margin-top: 16px; }
+#comments-header {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 24px;
+}
+#comments-header h2 {
+  font-size: 14px; font-weight: 600; letter-spacing: 0.05em;
+  color: var(--amber);
+}
+#comments-header .badge {
+  font-size: 11px; padding: 2px 10px; border-radius: 99px;
+  background: var(--ink-raised); color: var(--paper-dim);
+}
+
+/* ---- Comments ---- */
+.comment-thread.nested {
+  margin-left: 20px; padding-left: 16px;
+  border-left: 2px solid var(--amber-muted);
+}
+.comment-thread.nested .comment-thread.nested { border-color: var(--ink-border-light); }
+.comment-thread.nested .comment-thread.nested .comment-thread.nested { border-color: var(--ink-border); }
+
+.comment-item {
+  padding: 14px 0; border-bottom: 1px solid rgba(45, 42, 38, 0.6);
+}
+.comment-item:last-child { border-bottom: none; }
+
+.comment-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.comment-user-row { display: flex; align-items: center; gap: 8px; }
+.comment-avatar {
+  width: 20px; height: 20px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600; flex-shrink: 0;
+}
+.comment-name { font-size: 13px; font-weight: 600; color: var(--paper); }
+.comment-time { font-size: 11px; color: var(--paper-dim); flex-shrink: 0; margin-left: 8px; }
+
+.author-badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  background: var(--amber-glow); color: var(--amber-light);
+  font-weight: 500; flex-shrink: 0;
+}
+
+.comment-text {
+  font-size: 14px; line-height: 1.7; color: var(--paper-muted);
+  white-space: pre-wrap; word-break: break-word; margin-top: 6px;
+}
+.comment-text a { color: var(--amber); text-decoration: none; }
+.comment-text a:hover { text-decoration: underline; }
+
+.comment-footer { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--paper-dim); }
+.comment-footer .like-count { display: flex; align-items: center; gap: 3px; }
+.comment-footer svg { width: 11px; height: 11px; }
+.comment-footer .toggle-replies {
+  display: flex; align-items: center; gap: 3px; cursor: pointer;
+  color: var(--amber-muted); background: none; border: none;
+  font-size: 11px; font-family: var(--font-ui); padding: 0;
+  transition: opacity .2s;
+}
+.comment-footer .toggle-replies:hover { opacity: 0.8; }
+.comment-footer .toggle-replies svg { transition: transform .2s; }
+.comment-footer .toggle-replies.collapsed svg { transform: rotate(-90deg); }
+
+/* ---- Modal ---- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; animation: fadeIn .2s ease;
+}
+.modal {
+  background: var(--ink-surface); border: 1px solid var(--ink-border);
+  border-radius: 12px; padding: 28px; width: 480px; max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal h2 { font-size: 16px; color: var(--paper); margin-bottom: 20px; }
+.modal label { font-size: 12px; color: var(--paper-dim); display: block; margin-bottom: 6px; margin-top: 16px; }
+.modal input, .modal textarea {
+  width: 100%; padding: 10px 12px; font-size: 13px; font-family: var(--font-mono);
+  background: var(--ink); border: 1px solid var(--ink-border-light);
+  border-radius: 6px; color: var(--paper); outline: none;
+  transition: border-color .2s;
+}
+.modal textarea { resize: vertical; min-height: 80px; }
+.modal input:focus, .modal textarea:focus { border-color: var(--amber-muted); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+.modal-actions button {
+  padding: 8px 20px; font-size: 13px; font-family: var(--font-ui);
+  border-radius: 6px; cursor: pointer; transition: all .2s;
+}
+.btn-cancel { background: transparent; border: 1px solid var(--ink-border-light); color: var(--paper-dim); }
+.btn-cancel:hover { border-color: var(--paper-dim); color: var(--paper); }
+.btn-primary { background: var(--amber-muted); border: 1px solid var(--amber-muted); color: var(--paper); font-weight: 500; }
+.btn-primary:hover { background: var(--amber); border-color: var(--amber); }
+
+/* Progress bar */
+#scrape-progress {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
+  background: var(--ink-surface); border-bottom: 1px solid var(--ink-border);
+  padding: 10px 20px; display: flex; align-items: center; gap: 12px;
+  font-size: 12px; color: var(--paper-muted);
+}
+#scrape-progress .bar {
+  flex: 1; height: 4px; background: var(--ink-border);
+  border-radius: 2px; overflow: hidden;
+}
+#scrape-progress .bar-fill {
+  height: 100%; background: var(--amber);
+  border-radius: 2px; transition: width .3s;
+}
+#scrape-progress .status-done { color: var(--green); }
+
+/* ---- Loading ---- */
+#loading {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; height: 100%; gap: 12px; color: var(--paper-dim); font-size: 14px;
+}
+.spinner {
+  width: 32px; height: 32px; border: 2px solid var(--ink-border-light);
+  border-top-color: var(--amber); border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <div id="sidebar-header">
+    <h1>雪球备份
+      <span class="actions">
+        <button class="icon-btn" id="btn-settings" title="设置">⚙</button>
+        <button class="icon-btn" id="btn-scrape" title="抓取帖子">↓</button>
+      </span>
+    </h1>
+    <div id="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input type="text" id="search" placeholder="搜索帖子...">
+    </div>
+    <div id="search-stats"><span></span><span class="scrape-status"></span></div>
+  </div>
+  <div id="post-list"></div>
+</aside>
+
+<main id="main">
+  <div id="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+    </svg>
+    <span>← 选择一篇帖子阅读</span>
+  </div>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

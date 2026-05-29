@@ -1,0 +1,30 @@
+[package]
+name = "xueqiu-backup"
+version = "0.1.0"
+description = "雪球备份 — Xueqiu post scraper and viewer"
+authors = ["you"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.2", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.33", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["cookies", "json", "blocking"] }
+tokio = { version = "1", features = ["full"] }
+regex = "1"
+rand = "0.8"
+log = "0.4"
+chrono = "0.4"
+urlencoding = "2"
