@@ -241,9 +241,12 @@ async function refreshPost(id) {
 window._refreshPost = refreshPost;
 
 async function deletePost(id) {
-  if (!confirm('确定要删除这篇帖子吗？删除后无法恢复。')) return;
+  console.log("[deletePost] called with id:", id);
+  if (!(await showConfirm('确定要删除这篇帖子吗？'))) return;
+  console.log("[deletePost] confirmed, invoking delete_post command...");
   try {
-    await invoke("delete_post", { postId: id });
+    const result = await invoke("delete_post", { postId: id });
+    console.log("[deletePost] invoke returned:", result);
     posts = posts.filter(p => p.id !== id);
     activeId = null;
     renderList();
@@ -256,9 +259,13 @@ async function deletePost(id) {
     </div>`;
     loadUserFilter();
     toast("帖子已删除");
-  } catch (e) { toast("删除失败: " + e, true); }
+  } catch (e) {
+    console.error("[deletePost] error:", e);
+    toast("删除失败: " + e, true);
+  }
 }
 window._deletePost = deletePost;
+console.log("[init] window._deletePost assigned:", typeof window._deletePost);
 
 window._toggleReplies = (id, childCount) => {
   const thread = document.getElementById(id);
@@ -413,6 +420,24 @@ async function startScrape() {
 }
 
 // ==================== Toast ====================
+
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;animation:fadeIn .15s ease";
+    overlay.innerHTML = `<div style="background:var(--ink-raised);border:1px solid var(--ink-border);border-radius:10px;padding:24px 28px;max-width:360px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.5)">
+      <p style="font-size:14px;color:var(--paper);margin-bottom:20px;line-height:1.6">${esc(msg)}</p>
+      <p style="font-size:12px;color:var(--paper-dim);margin-bottom:18px">删除后无法恢复</p>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button id="confirm-cancel" style="padding:8px 24px;font-size:13px;font-family:var(--font-ui);background:transparent;border:1px solid var(--ink-border-light);border-radius:6px;color:var(--paper-dim);cursor:pointer">取消</button>
+        <button id="confirm-ok" style="padding:8px 24px;font-size:13px;font-family:var(--font-ui);background:var(--red);border:1px solid var(--red);border-radius:6px;color:#fff;cursor:pointer;font-weight:500">删除</button>
+      </div>
+    </div>`;
+    overlay.querySelector("#confirm-cancel").onclick = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector("#confirm-ok").onclick = () => { overlay.remove(); resolve(true); };
+    document.body.appendChild(overlay);
+  });
+}
 
 function toast(msg, isError) {
   const t = document.createElement("div");

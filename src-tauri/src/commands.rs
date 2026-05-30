@@ -107,7 +107,10 @@ pub fn refresh_post(
 
 #[tauri::command]
 pub fn delete_post(db: tauri::State<'_, Database>, post_id: i64) -> Result<(), String> {
-    db.delete_post(post_id)
+    log::info!("delete_post command called with post_id={}", post_id);
+    let result = db.delete_post(post_id);
+    log::info!("delete_post result for {}: {:?}", post_id, result.is_ok());
+    result
 }
 
 #[tauri::command]

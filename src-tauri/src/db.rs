@@ -361,11 +361,13 @@ impl Database {
     }
 
     pub fn delete_post(&self, post_id: i64) -> Result<(), String> {
+        log::info!("db::delete_post deleting post {} and its comments", post_id);
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM comments WHERE post_id = ?", params![post_id])
+        let comments_deleted = conn.execute("DELETE FROM comments WHERE post_id = ?", params![post_id])
             .map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM posts WHERE id = ?", params![post_id])
+        let posts_deleted = conn.execute("DELETE FROM posts WHERE id = ?", params![post_id])
             .map_err(|e| e.to_string())?;
+        log::info!("db::delete_post done: {} comments, {} post(s) deleted for post_id={}", comments_deleted, posts_deleted, post_id);
         Ok(())
     }
 
