@@ -92,12 +92,19 @@ document.getElementById("search").addEventListener("input", e => {
 // ==================== User Filter ====================
 
 async function loadUserFilter() {
-  let ids = [];
-  try { ids = await invoke("get_user_ids"); } catch (e) { /* ignore */ }
+  let ids = [], users = [];
+  try { ids = await invoke("get_user_ids"); } catch (e) { /* */ }
+  try { users = await invoke("get_all_users"); } catch (e) { /* */ }
+  const nameMap = {};
+  users.forEach(u => { nameMap[u.id] = u.screen_name; });
+
   const sel = document.getElementById("user-filter");
   const current = sel.value || "";
   sel.innerHTML = '<option value="">全部用户</option>' +
-    ids.map(id => `<option value="${id}">用户 ${id}</option>`).join('');
+    ids.map(id => {
+      const name = nameMap[id] ? `${nameMap[id]} (${id})` : `用户 ${id}`;
+      return `<option value="${id}">${esc(name)}</option>`;
+    }).join('');
   sel.value = current || "";
 }
 
@@ -286,10 +293,13 @@ async function renderDashboard() {
   const el = document.getElementById("view-dashboard");
   el.innerHTML = '<div id="loading"><div class="spinner"></div></div>';
 
-  let count = 0, settings = null, userStats = [];
+  let count = 0, settings = null, userStats = [], allUsers = [];
   try { count = await invoke("get_post_count"); } catch (e) { /* */ }
   try { settings = await invoke("get_settings"); } catch (e) { /* */ }
   try { userStats = await invoke("get_user_stats"); } catch (e) { /* */ }
+  try { allUsers = await invoke("get_all_users"); } catch (e) { /* */ }
+  const nameMap = {};
+  allUsers.forEach(u => { nameMap[u.id] = u.screen_name; });
 
   const cookieSet = settings && settings.cookie;
   const savedUserId = (settings && settings.user_id) || "";
@@ -300,9 +310,14 @@ async function renderDashboard() {
   if (userStats.length === 0) {
     userRows = '<tr><td colspan="5" style="color:var(--paper-dim);padding:24px;text-align:center">暂无数据，请先抓取</td></tr>';
   } else {
-    userRows = userStats.map(u => `
+    userRows = userStats.map(u => {
+      const name = nameMap[u.user_id] || "";
+      return `
       <tr>
-        <td style="font-family:var(--font-mono);font-size:12px;color:var(--amber-light)">${u.user_id}</td>
+        <td>
+          <span style="color:var(--paper)">${esc(name)}</span>
+          <span style="font-family:var(--font-mono);font-size:11px;color:var(--paper-dim);margin-left:6px">${u.user_id}</span>
+        </td>
         <td>${u.post_count}</td>
         <td>${u.comment_count}</td>
         <td style="font-size:11px;color:var(--paper-dim)">${fmtFull(u.latest_post)}</td>
@@ -310,7 +325,8 @@ async function renderDashboard() {
           <button class="btn-delete-user" data-uid="${u.user_id}" style="padding:3px 10px;font-size:11px;font-family:var(--font-ui);background:transparent;border:1px solid rgba(224,85,106,0.3);border-radius:4px;color:var(--paper-dim);cursor:pointer;transition:all .15s">删除</button>
         </td>
       </tr>
-    `).join('');
+    `;
+	    }).join('');
   }
 
   el.innerHTML = `<div class="page-wrap">
