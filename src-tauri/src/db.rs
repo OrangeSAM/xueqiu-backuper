@@ -63,6 +63,14 @@ pub struct PostListItem {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct UserStats {
+    pub user_id: i64,
+    pub post_count: i64,
+    pub comment_count: i64,
+    pub latest_post: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ScrapeLog {
     pub id: i64,
     pub post_id: i64,
@@ -369,6 +377,44 @@ impl Database {
             .map_err(|e| e.to_string())?;
         log::info!("db::delete_post done: {} comments, {} post(s) deleted for post_id={}", comments_deleted, posts_deleted, post_id);
         Ok(())
+    }
+
+    pub fn get_user_stats(&self) -> Result<Vec<UserStats>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT p.user_id, COUNT(*) AS post_count, \
+             (SELECT COUNT(*) FROM comments c WHERE c.post_id IN (SELECT id FROM posts WHERE user_id = p.user_id)) AS comment_count, \
+             MAX(p.created_at) AS latest_post \
+             FROM posts p GROUP BY p.user_id ORDER BY latest_post DESC"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |row| {
+            Ok(UserStats {
+                user_id: row.get(0)?,
+                post_count: row.get(1)?,
+                comment_count: row.get(2)?,
+                latest_post: row.get(3)?,
+            })
+        }).map_err(|e| e.to_string())?;
+        let mut stats = Vec::new();
+        for r in rows {
+            stats.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(stats)
+    }
+
+    pub fn delete_user_posts(&self, user_id: i64) -> Result<(i64, i64), String> {
+        log::info!("db::delete_user_posts deleting all posts for user_id={}", user_id);
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let comments_deleted = conn.execute(
+            "DELETE FROM comments WHERE post_id IN (SELECT id FROM posts WHERE user_id = ?)",
+            params![user_id],
+        ).map_err(|e| e.to_string())?;
+        let posts_deleted = conn.execute(
+            "DELETE FROM posts WHERE user_id = ?",
+            params![user_id],
+        ).map_err(|e| e.to_string())?;
+        log::info!("db::delete_user_posts done: {} comments, {} posts deleted for user_id={}", comments_deleted, posts_deleted, user_id);
+        Ok((posts_deleted as i64, comments_deleted as i64))
     }
 
     // ---- Settings ----

@@ -286,13 +286,32 @@ async function renderDashboard() {
   const el = document.getElementById("view-dashboard");
   el.innerHTML = '<div id="loading"><div class="spinner"></div></div>';
 
-  let count = 0, settings = null, userIds = [];
+  let count = 0, settings = null, userStats = [];
   try { count = await invoke("get_post_count"); } catch (e) { /* */ }
   try { settings = await invoke("get_settings"); } catch (e) { /* */ }
-  try { userIds = await invoke("get_user_ids"); } catch (e) { /* */ }
+  try { userStats = await invoke("get_user_stats"); } catch (e) { /* */ }
 
   const cookieSet = settings && settings.cookie;
   const savedUserId = (settings && settings.user_id) || "";
+
+  const totalComments = userStats.reduce((s, u) => s + u.comment_count, 0);
+
+  let userRows = '';
+  if (userStats.length === 0) {
+    userRows = '<tr><td colspan="5" style="color:var(--paper-dim);padding:24px;text-align:center">暂无数据，请先抓取</td></tr>';
+  } else {
+    userRows = userStats.map(u => `
+      <tr>
+        <td style="font-family:var(--font-mono);font-size:12px;color:var(--amber-light)">${u.user_id}</td>
+        <td>${u.post_count}</td>
+        <td>${u.comment_count}</td>
+        <td style="font-size:11px;color:var(--paper-dim)">${fmtFull(u.latest_post)}</td>
+        <td>
+          <button class="btn-delete-user" data-uid="${u.user_id}" style="padding:3px 10px;font-size:11px;font-family:var(--font-ui);background:transparent;border:1px solid rgba(224,85,106,0.3);border-radius:4px;color:var(--paper-dim);cursor:pointer;transition:all .15s">删除</button>
+        </td>
+      </tr>
+    `).join('');
+  }
 
   el.innerHTML = `<div class="page-wrap">
     <h2>数据概况</h2>
@@ -302,8 +321,12 @@ async function renderDashboard() {
         <div class="stat-label">帖子总数</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">${userIds.length}</div>
-        <div class="stat-label">已抓取用户数</div>
+        <div class="stat-value">${totalComments}</div>
+        <div class="stat-label">评论总数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${userStats.length}</div>
+        <div class="stat-label">已抓取用户</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${cookieSet ? '✓' : '✗'}</div>
@@ -311,7 +334,23 @@ async function renderDashboard() {
       </div>
     </div>
 
-    <h2>抓取操作</h2>
+    <h2>按用户统计</h2>
+    <div style="overflow-x:auto">
+      <table class="scrape-log-table">
+        <thead>
+          <tr>
+            <th>用户 ID</th>
+            <th>帖子数</th>
+            <th>评论数</th>
+            <th>最新帖子</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>${userRows}</tbody>
+      </table>
+    </div>
+
+    <h2 style="margin-top:32px">抓取操作</h2>
     <div class="form-group">
       <label>用户 ID 或主页 URL</label>
       <input type="text" id="scrape-uid" value="${esc(savedUserId)}" placeholder="例如: 4533843739 或 https://xueqiu.com/u/4533843739">
@@ -330,6 +369,23 @@ async function renderDashboard() {
   </div>`;
 
   document.getElementById("btn-start-scrape").onclick = startScrape;
+
+  // Bind delete user buttons
+  el.querySelectorAll(".btn-delete-user").forEach(btn => {
+    btn.addEventListener("mouseenter", () => { btn.style.borderColor = "var(--red)"; btn.style.color = "var(--red)"; });
+    btn.addEventListener("mouseleave", () => { btn.style.borderColor = "rgba(224,85,106,0.3)"; btn.style.color = "var(--paper-dim)"; });
+    btn.addEventListener("click", async () => {
+      const uid = parseInt(btn.dataset.uid);
+      if (!(await showConfirm(`确定要删除用户 ${uid} 的全部帖子吗？`))) return;
+      try {
+        const [postsDel, commentsDel] = await invoke("delete_user_posts", { userId: uid });
+        toast(`已删除 ${postsDel} 篇帖子和 ${commentsDel} 条评论`);
+        loadPosts();
+        loadUserFilter();
+        renderDashboard();
+      } catch (e) { toast("删除失败: " + e, true); }
+    });
+  });
 }
 
 // ==================== Settings ====================

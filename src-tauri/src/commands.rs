@@ -1,4 +1,4 @@
-use crate::db::{Database, PostDetail, PostListItem};
+use crate::db::{Database, PostDetail, PostListItem, UserStats};
 use crate::scraper::Scraper;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -103,6 +103,16 @@ pub fn refresh_post(
 
     db.get_post(post_id)?
         .ok_or_else(|| "Failed to read back post".into())
+}
+
+#[tauri::command]
+pub fn get_user_stats(db: tauri::State<'_, Database>) -> Result<Vec<UserStats>, String> {
+    db.get_user_stats()
+}
+
+#[tauri::command]
+pub fn delete_user_posts(db: tauri::State<'_, Database>, user_id: i64) -> Result<(i64, i64), String> {
+    db.delete_user_posts(user_id)
 }
 
 #[tauri::command]
