@@ -126,6 +126,23 @@ impl Scraper {
         extract_article_text(&html)
     }
 
+    pub fn fetch_user_info(&self, user_id: &str) -> Result<Value, String> {
+        let url = format!("{}/statuses/original/show.json?user_id={}", XUEQIU, user_id);
+        let resp = self
+            .client
+            .get(&url)
+            .header("Referer", format!("{}/u/{}", XUEQIU, user_id))
+            .header("X-Requested-With", "XMLHttpRequest")
+            .send()
+            .map_err(|e| format!("User info request failed: {}", e))?;
+
+        if resp.status() != 200 {
+            return Err(format!("HTTP {}", resp.status()));
+        }
+
+        resp.json().map_err(|e| e.to_string())
+    }
+
     pub fn fetch_comments(&self, status_id: i64) -> Result<Vec<Value>, String> {
         let mut all_comments: Vec<Value> = Vec::new();
         let mut max_id: i64 = -1;

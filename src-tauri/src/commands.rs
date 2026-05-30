@@ -1,4 +1,4 @@
-use crate::db::{Database, PostDetail, PostListItem, UserStats};
+use crate::db::{Database, PostDetail, PostListItem, UserInfo, UserStats};
 use crate::scraper::Scraper;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -106,6 +106,24 @@ pub fn refresh_post(
 }
 
 #[tauri::command]
+pub fn get_all_users(db: tauri::State<'_, Database>) -> Result<Vec<UserInfo>, String> {
+    db.get_all_users()
+}
+
+#[tauri::command]
+pub fn refresh_user_info(
+    db: tauri::State<'_, Database>,
+    user_id: String,
+) -> Result<UserInfo, String> {
+    let cookie = db.get_setting("cookie").ok().flatten();
+    let scraper = Scraper::new(cookie.as_deref())?;
+    let data = scraper.fetch_user_info(&user_id)?;
+    db.upsert_user(&data)?;
+    db.get_user(user_id.parse::<i64>().unwrap_or(0))?
+        .ok_or_else(|| "Failed to read back user".into())
+}
+
+#[tauri::command]
 pub fn get_user_stats(db: tauri::State<'_, Database>) -> Result<Vec<UserStats>, String> {
     db.get_user_stats()
 }
@@ -171,6 +189,12 @@ pub async fn scrape_timeline(
     let msg = tokio::task::spawn_blocking(move || {
         let db = app2.state::<Database>();
         let scraper = Scraper::new(Some(&cookie))?;
+
+        // Fetch user info first (non-fatal if it fails)
+        match scraper.fetch_user_info(&user_id2) {
+            Ok(data) => { let _ = db.upsert_user(&data); }
+            Err(e) => log::warn!("Failed to fetch user info for {}: {}", user_id2, e),
+        }
 
         let statuses = scraper.fetch_timeline(&user_id2, max_pages)?;
         let total = statuses.len();

@@ -70,6 +70,21 @@ pub struct UserStats {
     pub latest_post: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserInfo {
+    pub id: i64,
+    pub screen_name: String,
+    pub description: String,
+    pub followers_count: i64,
+    pub status_count: i64,
+    pub stocks_count: i64,
+    pub province: String,
+    pub city: String,
+    pub profile_image_url: String,
+    pub verified: bool,
+    pub verified_description: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScrapeLog {
     pub id: i64,
@@ -173,6 +188,21 @@ impl Database {
                 status TEXT NOT NULL,
                 message TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                screen_name TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                followers_count INTEGER NOT NULL DEFAULT 0,
+                status_count INTEGER NOT NULL DEFAULT 0,
+                stocks_count INTEGER NOT NULL DEFAULT 0,
+                province TEXT NOT NULL DEFAULT '',
+                city TEXT NOT NULL DEFAULT '',
+                profile_image_url TEXT NOT NULL DEFAULT '',
+                verified INTEGER NOT NULL DEFAULT 0,
+                verified_description TEXT NOT NULL DEFAULT '',
+                raw_json TEXT NOT NULL DEFAULT '{}'
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -400,6 +430,98 @@ impl Database {
             stats.push(r.map_err(|e| e.to_string())?);
         }
         Ok(stats)
+    }
+
+    pub fn upsert_user(&self, data: &serde_json::Value) -> Result<(), String> {
+        let user = &data["user"];
+        let id = user["id"].as_i64().unwrap_or(0);
+        if id == 0 { return Ok(()); }
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO users (id, screen_name, description, followers_count, status_count, \
+             stocks_count, province, city, profile_image_url, verified, verified_description, raw_json) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) \
+             ON CONFLICT(id) DO UPDATE SET \
+             screen_name=excluded.screen_name, description=excluded.description, \
+             followers_count=excluded.followers_count, status_count=excluded.status_count, \
+             stocks_count=excluded.stocks_count, province=excluded.province, city=excluded.city, \
+             profile_image_url=excluded.profile_image_url, verified=excluded.verified, \
+             verified_description=excluded.verified_description, raw_json=excluded.raw_json",
+            params![
+                id,
+                user["screen_name"].as_str().unwrap_or(""),
+                user["description"].as_str().unwrap_or(""),
+                user["followers_count"].as_i64().unwrap_or(0),
+                user["status_count"].as_i64().unwrap_or(0),
+                user["stocks_count"].as_i64().unwrap_or(0),
+                user["province"].as_str().unwrap_or(""),
+                user["city"].as_str().unwrap_or(""),
+                user["profile_image_url"].as_str().unwrap_or(""),
+                user["verified"].as_bool().unwrap_or(false),
+                user["verified_description"].as_str().unwrap_or(""),
+                serde_json::to_string(user).unwrap_or_else(|_| "{}".into()),
+            ],
+        ).map_err(|e| e.to_string())?;
+        log::info!("db::upsert_user saved user {} ({})", id, user["screen_name"].as_str().unwrap_or("?"));
+        Ok(())
+    }
+
+    pub fn get_user(&self, user_id: i64) -> Result<Option<UserInfo>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        match conn.query_row(
+            "SELECT id, screen_name, description, followers_count, status_count, \
+             stocks_count, province, city, profile_image_url, verified, verified_description \
+             FROM users WHERE id = ?",
+            params![user_id],
+            |row| {
+                Ok(UserInfo {
+                    id: row.get(0)?,
+                    screen_name: row.get(1)?,
+                    description: row.get(2)?,
+                    followers_count: row.get(3)?,
+                    status_count: row.get(4)?,
+                    stocks_count: row.get(5)?,
+                    province: row.get(6)?,
+                    city: row.get(7)?,
+                    profile_image_url: row.get(8)?,
+                    verified: row.get(9)?,
+                    verified_description: row.get(10)?,
+                })
+            },
+        ) {
+            Ok(user) => Ok(Some(user)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub fn get_all_users(&self) -> Result<Vec<UserInfo>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT id, screen_name, description, followers_count, status_count, \
+             stocks_count, province, city, profile_image_url, verified, verified_description \
+             FROM users ORDER BY id"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |row| {
+            Ok(UserInfo {
+                id: row.get(0)?,
+                screen_name: row.get(1)?,
+                description: row.get(2)?,
+                followers_count: row.get(3)?,
+                status_count: row.get(4)?,
+                stocks_count: row.get(5)?,
+                province: row.get(6)?,
+                city: row.get(7)?,
+                profile_image_url: row.get(8)?,
+                verified: row.get(9)?,
+                verified_description: row.get(10)?,
+            })
+        }).map_err(|e| e.to_string())?;
+        let mut users = Vec::new();
+        for r in rows {
+            users.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(users)
     }
 
     pub fn delete_user_posts(&self, user_id: i64) -> Result<(i64, i64), String> {
